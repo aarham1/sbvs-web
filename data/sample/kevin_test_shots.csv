@@ -1,0 +1,5 @@
+session_id,video_name,shot_id,frame,time_s,result,made,start_x,start_y,peak_y,player_id,edited
+sample_bounce,sample_bounce.mp4,1,58,1.9333333333333331,made,1,700.0,420.0,99.4,0,False
+sample_positions,sample_positions.mp4,1,61,2.033,made,1,700.0,420.0,81.2,0,False
+sample_positions,sample_positions.mp4,2,188,6.267,missed,0,700.0,420.0,94.5,0,False
+sample_positions,sample_positions.mp4,3,295,9.833,made,1,700.0,420.0,71.0,0,False
