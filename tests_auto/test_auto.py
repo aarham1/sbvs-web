@@ -56,6 +56,18 @@ def test_miss_long():
     assert len(ev) == 1 and ev[0].result == "missed", ev
 
 
+def test_layup_that_barely_rises():
+    # side-on view: ball comes in low, peaks just under the rim line, drops through the net
+    path = [(380, 330), (430, 290), (480, 250), (505, 215), (515, 222), (520, 232), (522, 260)]
+    ev = run(path)
+    assert len(ev) == 1 and ev[0].result == "made", ev
+
+
+def test_ball_held_under_hoop_is_not_a_make():
+    path = [(520, 300)] * 10 + [(522, 305)] * 10
+    assert run(path) == []
+
+
 def test_dribble_far_away_is_not_a_shot():
     path = [(200 + i, 400 + (i % 2) * 30) for i in range(40)]
     assert run(path) == []
@@ -86,9 +98,17 @@ def test_team_split_and_names():
     rng = np.random.default_rng(0)
     white = teams._lab((240, 240, 240)) + rng.normal(0, 3, (30, 3))
     navy = teams._lab((90, 40, 20)) + rng.normal(0, 3, (20, 3))
-    model = teams.TeamModel(list(white) + list(navy))
+    # chest pixels: jersey color mixed with the same crowd background for both teams
+    crowd = rng.normal(teams._lab((60, 50, 70)), 8, (150, 3))
+    def px(base):
+        return np.vstack([rng.normal(base, 4, (150, 3)), crowd])
+    pixels = [px(c) for c in white] + [px(c) for c in navy]
+    model = teams.TeamModel(list(white) + list(navy), pixels)
     assert model.names == ["White", "Navy"], model.names
-    assert model.assign(teams._lab((90, 40, 20))) == 1
+    # a white shooter whose crop is mostly dark crowd still goes to the white team
+    shooter = np.vstack([rng.normal(teams._lab((240, 240, 240)), 4, (40, 3)), rng.normal(teams._lab((60, 50, 70)), 8, (300, 3))])
+    assert model.assign_pixels([shooter]) == 0
+    assert model.assign_pixels([px(teams._lab((90, 40, 20)))]) == 1
 
 
 def test_stats_and_outlook():
