@@ -1,0 +1,19 @@
+# Videos are too big for GitHub (100 MB limit); share them by Google Drive
+data/videos/
+*.mp4
+*.mov
+*.MOV
+!data/sample/synthetic_clip.mp4
+# The Demo page video must be in the repo
+!demo/*.mp4
+
+# Files the app writes while you use it (each person's own test runs)
+data/shots.csv
+data/players.csv
+data/positions/
+data/spotcheck/
+
+# Python and Jupyter clutter
+__pycache__/
+.ipynb_checkpoints/
+.DS_Store

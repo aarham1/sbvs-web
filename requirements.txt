@@ -1,0 +1,14 @@
+# CPU-only PyTorch: the default PyTorch download adds about 3 GB of GPU (CUDA) files
+# that the free Streamlit host can't use and that can make the install fail.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch
+torchvision
+streamlit
+opencv-python-headless
+numpy
+pandas
+matplotlib
+# Broadcast page (Phase 2)
+ultralytics
+easyocr
+imageio-ffmpeg
