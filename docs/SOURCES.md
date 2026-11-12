@@ -119,3 +119,22 @@ Sources show where the ideas come from. What convinces a reviewer is being able 
   it drifted onto players: https://docs.opencv.org/4.x/d4/dc6/tutorial_py_template_matching.html
 - Measured on the Duke clip (8 s, 266 frames): yolo11n found the ball in about 22% of
   frames and yolo11x in 46%. A basketball-trained model is the next improvement (section 4).
+
+## Auto-analysis home page (auto/)
+
+- **Detector:** E-BARD `BODD_yolov8n_0001.onnx` by Gabriele Giudici, Hugging Face
+  `GabrieleGiudici/E-BARD-detection-models`, license CC BY 4.0. A YOLOv8n trained on 60 NBA
+  broadcast games (2024-25), classes basketball, hoop, player, referee, input 704x704.
+  The file's metadata also carries Ultralytics' AGPL-3.0 notice (YOLOv8 code); this repo is
+  public and open source, which AGPL allows. Run with onnxruntime, so PyTorch is not needed.
+- **Make/miss rule:** the ball crossing the rim line going down, with the crossing point found by
+  linear interpolation between the frames before and after, inside the rim. This is the same idea
+  as SBVS 2.0's fixed-camera rule, now using a detected hoop.
+- **Team split:** k-means (k = 2) on the median Lab color of each player's chest area. A shooter is
+  assigned by per-pixel voting over several frames, so a defender overlapping the box matters less.
+  This is the usual unsupervised baseline; Roboflow's 2025 basketball tutorial uses the same
+  k-means step on learned (SigLIP) features instead of raw colors.
+- **Jersey numbers:** Tesseract OCR (digits only), accepted only when two or more frames agree.
+- **Next-game outlook:** exponential smoothing of attempts (decay 0.6). FG% uses additive
+  (empirical-Bayes) smoothing toward the overall average with 10 virtual shots. The 80% range
+  comes from Poisson quantiles.
