@@ -1,14 +1,9 @@
-# CPU-only PyTorch: the default PyTorch download adds about 3 GB of GPU (CUDA) files
-# that the free Streamlit host can't use and that can make the install fail.
---extra-index-url https://download.pytorch.org/whl/cpu
-torch
-torchvision
+# Lightweight on purpose: no PyTorch. The detector runs as ONNX (onnxruntime) and jersey
+# numbers are read with Tesseract (system package in packages.txt).
 streamlit
 opencv-python-headless
 numpy
 pandas
-matplotlib
-# Broadcast page (Phase 2)
-ultralytics
-easyocr
-imageio-ffmpeg
+altair
+onnxruntime
+pytesseract
