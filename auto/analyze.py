@@ -133,6 +133,7 @@ def analyze_video(path, detector=None, progress=None, max_seconds=None):
     tracker = shot_rules.ShotTracker()
     buffer = deque()
     team_samples = []
+    team_pixels = []
     raw_events = []            # (event, shooter_color, number, thumb)
     cut_times = []
     prev_hist = None
@@ -187,9 +188,11 @@ def analyze_video(path, detector=None, progress=None, max_seconds=None):
         if t - last_sample_t >= TEAM_SAMPLE_EVERY_S and len(team_samples) < MAX_TEAM_SAMPLES:
             last_sample_t = t
             for p in players:
-                c = teams.jersey_color(frame, p)
-                if c is not None:
-                    team_samples.append(c)
+                px = teams.torso_pixels(frame, p)
+                if px is not None:
+                    team_samples.append(np.median(px, 0))
+                    keep = np.random.default_rng(len(team_samples)).choice(len(px), min(len(px), 300), replace=False)
+                    team_pixels.append(px[keep])
 
         ev = tracker.update(t, ball, det["hoop"])
         if ev is not None:
@@ -211,7 +214,7 @@ def analyze_video(path, detector=None, progress=None, max_seconds=None):
 
     team_model = None
     if len(team_samples) >= 4:
-        team_model = teams.TeamModel(team_samples)
+        team_model = teams.TeamModel(team_samples, team_pixels)
     shots_df, thumbs = _build_table(raw_events, team_model, cut_times)
     meta = {"duration_s": round(duration, 1), "checked_frames": checked,
             "processing_s": round(time.time() - started, 1), "cuts": len(cut_times),
@@ -227,7 +230,9 @@ def _describe(ev, buffer, use_ocr):
     pixels, number, thumb = None, None, None
     if entry is not None:
         chain = follow_back(buffer, entry, box)
-        pixels = [teams.torso_pixels(e["frame"], b) for e, b in chain]
+        held = [(e, b) for e, b in chain if e["ball"] and ball_in_hands(e["ball"], b)]
+        pixels = [teams.chest_under_ball_pixels(e["frame"], b, e["ball"]) for e, b in held] or \
+                 [teams.torso_pixels(entry["frame"], box)]
         if use_ocr:
             number = jersey.vote([jersey.read_number(e["frame"], b) for e, b in chain])
         thumb = thumbnail(entry["frame"], box, ev.hoop, ev.result)

@@ -25,6 +25,8 @@ AWAY_DIST = 2.5           # "came from away": ball was this many hoop widths fro
 LOOKBACK_S = 2.5          # ... within this many seconds before the attempt
 RISE_MIN = 0.4            # or rose at least this many hoop widths in RISE_WINDOW_S
 RISE_WINDOW_S = 0.6
+BELOW_RIM_START = 0.6     # an attempt may also start this many hoop widths below the rim line
+                          # (layups barely rise above the rim in side-on TV views)
 RIM_MARGIN = 0.15         # extra rim width (fraction of hoop width) counted as "inside"
 FAR_SIDE = 2.5            # during an attempt: ball this many hoop widths beside the rim,
 FAR_BELOW = 2.5           # ... this far below the rim line, or above the zone -> missed
@@ -119,6 +121,9 @@ class ShotTracker:
         a["path"].append((t, ball[0], ball[1]))
         a["last_seen"] = t
         bx, by = ball[0], ball[1]
+        net_bottom = a["hoop"][3] + 0.3 * w
+        if x1 <= bx <= x2 and rim_y <= by <= net_bottom and by > prev[2] and len(a["path"]) >= 2:
+            return self._finish(t, "made", "dropped through the net")
         if prev[2] < rim_y <= by:                       # crossed the rim line going down
             f = (rim_y - prev[2]) / max(by - prev[2], 1e-6)
             cross_x = prev[1] + f * (bx - prev[1])
@@ -153,7 +158,7 @@ class ShotTracker:
     def _in_zone(ball, x1, x2, w, rim_y):
         bx, by = ball[0], ball[1]
         return (x1 - ZONE_HALF_WIDTH * w <= bx <= x2 + ZONE_HALF_WIDTH * w
-                and rim_y - ZONE_HEIGHT * w <= by < rim_y)
+                and rim_y - ZONE_HEIGHT * w <= by < rim_y + BELOW_RIM_START * w)
 
     @staticmethod
     def _left_area(bx, by, x1, x2, w, rim_y):
