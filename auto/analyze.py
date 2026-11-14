@@ -1,4 +1,4 @@
-"""Watch a game video and return every shot with result, team and jersey number.
+"""Watch a game video and return every shot with its result and team.
 
 Frame sampling: BASE_FPS frames per second normally, BURST_FPS while the ball is near a
 hoop or a shot is open (shots last about a second, so they need more frames).
@@ -15,7 +15,7 @@ import cv2
 import numpy as np
 import pandas as pd
 
-from . import jersey, players as player_tracking, shots as shot_rules, teams
+from . import players as player_tracking, shots as shot_rules, teams
 from .detector import Detector
 
 BASE_FPS = 5
@@ -129,7 +129,6 @@ def analyze_video(path, detector=None, progress=None, max_seconds=None):
     """Return dict(shots=DataFrame, team_names=[..], thumbs={shot_id: jpg}, meta={..})."""
     started = time.time()
     detector = detector or Detector()
-    use_ocr = jersey.available()
     cap = cv2.VideoCapture(path)
     if not cap.isOpened():
         raise ValueError("Could not open the video file.")
@@ -144,7 +143,7 @@ def analyze_video(path, detector=None, progress=None, max_seconds=None):
     buffer = deque()
     team_samples = []
     team_pixels = []
-    raw_events = []            # (event, shooter_color, number, thumb)
+    raw_events = []            # (event, team pixels, thumb, team source)
     cut_times = []
     prev_hist = None
     last_ball = None
@@ -178,7 +177,7 @@ def analyze_video(path, detector=None, progress=None, max_seconds=None):
         if prev_hist is not None and cv2.compareHist(prev_hist, hist, cv2.HISTCMP_CORREL) < CUT_THRESHOLD:
             ev = tracker.flush(t)
             if ev is not None:
-                raw_events.append(_describe(ev, buffer, use_ocr, player_tracker))
+                raw_events.append(_describe(ev, buffer, player_tracker))
             tracker.reset()
             player_tracker.reset()
             buffer.clear()
@@ -208,7 +207,7 @@ def analyze_video(path, detector=None, progress=None, max_seconds=None):
 
         ev = tracker.update(t, ball, det["hoop"])
         if ev is not None:
-            raw_events.append(_describe(ev, buffer, use_ocr, player_tracker))
+            raw_events.append(_describe(ev, buffer, player_tracker))
 
         near = tracker.attempt is not None
         if not near and ball is not None and tracker.hoop is not None:
@@ -221,7 +220,7 @@ def analyze_video(path, detector=None, progress=None, max_seconds=None):
 
     ev = tracker.flush(next_t)
     if ev is not None:
-        raw_events.append(_describe(ev, buffer, use_ocr, player_tracker))
+        raw_events.append(_describe(ev, buffer, player_tracker))
     cap.release()
 
     team_model = None
@@ -230,19 +229,19 @@ def analyze_video(path, detector=None, progress=None, max_seconds=None):
     shots_df, thumbs = _build_table(raw_events, team_model, cut_times)
     meta = {"duration_s": round(duration, 1), "checked_frames": checked,
             "processing_s": round(time.time() - started, 1), "cuts": len(cut_times),
-            "ocr": use_ocr, "team_separation": team_model.separation if team_model else None}
+            "team_separation": team_model.separation if team_model else None}
     if progress:
         progress(1.0, "Done")
     return {"shots": shots_df, "team_names": team_model.names if team_model else ["Team A", "Team B"],
             "thumbs": thumbs, "meta": meta}
 
 
-def _describe(ev, buffer, use_ocr, player_tracker):
-    """Shooter, his team evidence, jersey number and a thumbnail for one shot.
+def _describe(ev, buffer, player_tracker):
+    """Shooter, his team evidence and a thumbnail for one shot.
     Team evidence: clean (isolated) jersey samples of the shooter's track if there are
     at least MIN_CLEAN_SAMPLES; otherwise the chest strip under the ball at release."""
     entry, idx = find_shooter(buffer, ev)
-    pixels, number, thumb, source = None, None, None, ""
+    pixels, thumb, source = None, None, ""
     if entry is not None:
         box = entry["players"][idx]
         clean = player_tracker.samples(entry["ids"][idx])
@@ -254,18 +253,16 @@ def _describe(ev, buffer, use_ocr, player_tracker):
             pixels = [teams.chest_under_ball_pixels(e["frame"], b, e["ball"]) for e, b in held] or \
                      [teams.torso_pixels(entry["frame"], box)]
             source = "at release"
-        if use_ocr:
-            number = jersey.vote([jersey.read_number(e["frame"], b) for e, b in chain])
         thumb = thumbnail(entry["frame"], box, ev.hoop, ev.result)
     elif buffer:
         thumb = thumbnail(buffer[-1]["frame"], None, ev.hoop, ev.result)
-    return ev, pixels, number, thumb, source
+    return ev, pixels, thumb, source
 
 
 def _build_table(raw_events, team_model, cut_times):
     rows, thumbs = [], {}
     last_made_t = None
-    for i, (ev, pixels, number, thumb, source) in enumerate(raw_events, start=1):
+    for i, (ev, pixels, thumb, source) in enumerate(raw_events, start=1):
         team_idx = team_model.assign_pixels(pixels) if (team_model is not None and pixels) else None
         flag = ""
         if ev.result == "made" and last_made_t is not None and ev.t_attempt - last_made_t < REPLAY_S \
@@ -274,9 +271,9 @@ def _build_table(raw_events, team_model, cut_times):
         if ev.result == "made" and not flag:
             last_made_t = ev.t_result
         rows.append({"shot_id": i, "time_s": round(ev.t_attempt, 1), "result": ev.result,
-                     "team": team_idx, "number": number or "", "shooter_found": pixels is not None,
+                     "team": team_idx, "shooter_found": pixels is not None,
                      "team_from": source, "reason": ev.reason, "flag": flag})
         if thumb:
             thumbs[i] = thumb
-    cols = ["shot_id", "time_s", "result", "team", "number", "shooter_found", "team_from", "reason", "flag"]
+    cols = ["shot_id", "time_s", "result", "team", "shooter_found", "team_from", "reason", "flag"]
     return pd.DataFrame(rows, columns=cols), thumbs
