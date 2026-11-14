@@ -165,25 +165,42 @@ def test_clean_samples_only_when_alone():
 
 def test_stats_and_outlook():
     shots_df = pd.DataFrame({
-        "shot_id": [1, 2, 3, 4, 5], "time_s": [1, 2, 3, 4, 5],
-        "result": ["made", "missed", "made", "made", "made"],
-        "team": [0, 0, 1, 0, 0], "number": ["23", "23", "", "5", "23"],
-        "shooter_found": [True] * 5, "reason": [""] * 5,
-        "flag": ["", "", "", "", "possible replay"]})
-    lab = predict.label_shots(shots_df, ["White", "Navy"])
-    tt = predict.team_table(lab).set_index("team")
-    assert tt.loc["White", "made"] == 2 and tt.loc["White", "attempts"] == 3
-    pt = predict.player_table(lab).set_index("player")
-    assert pt.loc["White #23", "attempts"] == 2 and pt.loc["White #23", "FG%"] == 50.0
-    g1 = predict.game_rows(lab, "g1", "2026-11-01", "Game 1")
+        "shot_id": [1, 2, 3, 4, 5, 6], "time_s": [1, 2, 3, 4, 5, 6],
+        "result": ["made", "missed", "made", "made", "made", "made"],
+        "team": [0, 0, 1, 0, 0, None],
+        "shooter_found": [True] * 5 + [False], "reason": [""] * 6,
+        "flag": ["", "", "", "", "possible replay", ""]})
+    names = ["Duke", "Alabama"]
+    lab = predict.label_shots(shots_df, names)
+    tt = predict.team_table(lab, names).set_index("team")
+    assert tt.loc["Duke", "made"] == 2 and tt.loc["Duke", "attempts"] == 3      # replay not counted
+    assert tt.loc["Alabama", "attempts"] == 1 and tt.loc["Unknown team", "attempts"] == 1
+    runs = predict.scoring_runs(lab)
+    assert len(runs) == 0                     # Duke, Alabama, Duke: no 2-in-a-row
+    g1 = predict.game_rows(lab, names, "g1", "2026-11-01", "Game 1", 10)
+    assert list(g1["team"]) == ["Duke", "Alabama"] and list(g1["opponent"]) == ["Alabama", "Duke"]
     g2 = g1.assign(game_id="g2", game_date="2026-11-08")
     hist = predict.add_game(predict.add_game(None, g1), g2)
     hist = predict.add_game(hist, g2)            # re-adding a game replaces it
-    assert len(hist) == 2 * len(g1)
-    out = predict.outlook(hist).set_index("player")
-    row = out.loc["White #23"]
-    assert row["games"] == 2 and 0 < row["expected FG%"] < 100
+    assert len(hist) == 4
+    out = predict.outlook(hist).set_index("team")
+    assert out.loc["Duke", "games"] == 2 and 0 < out.loc["Duke", "expected FG%"] < 100
+    assert "player" not in out.columns
     assert predict.poisson_quantile(3.0, 0.1) == 1 and predict.poisson_quantile(3.0, 0.9) == 5
+
+
+def test_scoring_run_and_old_history_file():
+    import io
+    shots_df = pd.DataFrame({"shot_id": [1, 2, 3, 4], "time_s": [1, 2, 3, 4],
+                             "result": ["made", "missed", "made", "made"], "team": [0, 1, 0, 1],
+                             "shooter_found": [True] * 4, "reason": [""] * 4, "flag": [""] * 4})
+    runs = predict.scoring_runs(predict.label_shots(shots_df, ["A", "B"]))
+    assert list(runs["team"]) == ["A"] and runs["makes"].iloc[0] == 2
+    old = io.StringIO("game_id,game_date,game_label,team,player,attempts,makes\n"
+                      "g1,2026-11-01,G,Duke,(team total),10,5\n"
+                      "g1,2026-11-01,G,Duke,Duke #7,3,2\n")
+    h = predict.load_history(old)
+    assert len(h) == 1 and h["attempts"].iloc[0] == 10 and predict.known_teams(h) == ["Duke"]
 
 
 if __name__ == "__main__":
