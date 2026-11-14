@@ -1,0 +1,135 @@
+# SBVS – Cowork handoff log
+
+Written by Claude (Cowork, cloud session) for Arham and for the Claude in Arham's SBVS project.
+The Cowork session has no access to Arham's computer, so this file lives in two places:
+- GitHub: `aarham1/sbvs-web` → `HANDOFF.md` (repo root), the copy to read
+- Download from the Cowork chat: `HANDOFF.md` plus `sbvs-web-cowork.zip` (full working folder)
+
+Project rules (from Arham, 2026-11-14):
+1. Class code (`sbvs-2/`) stays at IME 2130L level (Python, NumPy, Pandas, OOP, Matplotlib, regex, APIs).
+   **This session never touched `sbvs-2/`.** It only worked on `sbvs-web/`.
+2. Website code (`sbvs-web/`) may go further, but every new library or technique needs a cited source
+   in `docs/SOURCES.md`.
+3. No fake commits and no commits as teammates (Kevin, Jessica, Jonathan). All commits so far were made
+   by Arham's own GitHub account (`aarham1`) through his browser using GitHub's web upload page.
+   Most have GitHub's default message "Add files via upload". No git CLI was used and no author
+   was faked.
+
+---
+
+## 1. Deploy the existing app (2026-11-12) – DONE
+
+**Asked:** deploy the uploaded `sbvs-web-deploy.zip` to Streamlit Community Cloud following DEPLOY.md,
+in a new GitHub repo, then confirm the Demo page video plays. Ask before publishing.
+
+**Done:**
+- Arham approved a **public** repo and app (class project, no commercial use). I flagged two things:
+  the demo video is a clip of the Duke vs. Alabama TV broadcast, which could draw a copyright
+  takedown, and the CSVs contain first names (Jess, Kevin). Both were kept as is.
+- Created the public repo **github.com/aarham1/sbvs-web** and uploaded every file from the zip.
+  Arham dragged in `demo/duke_alabama_ball_tracking.mp4` himself (17 MB, over the browser
+  tool's 10 MB limit).
+- Arham signed in to Streamlit with GitHub and authorized it himself.
+- Deployed **https://sbvs-web.streamlit.app** (branch `main`, `app.py`, Python 3.12).
+- **Verified:** the Demo page video loads and plays (50 s, 1280×960, playback advanced, no errors).
+
+## 2. Turn the site into "upload footage → stats → next-game outlook" (2026-11-12 to 11-14) – MOSTLY DONE
+
+**Asked:** the site should only need game footage. The computer vision finds the hoop, ball,
+players and teams on its own. Output: player accuracy, makes vs. attempts, and a prediction for
+next game. Decisions Arham made: **TV broadcast footage**, players identified as
+**team + jersey number**, game history kept as a **CSV the user downloads and re-uploads**,
+and processing on the **free host** (lighter models).
+
+**Done:**
+- **Detector:** E-BARD `BODD_yolov8n_0001.onnx` (CC BY 4.0, trained on 60 NBA broadcast games;
+  classes basketball, hoop, player, referee). No custom training was needed. It runs with
+  `onnxruntime`, so **PyTorch, ultralytics and EasyOCR were removed** from requirements, which
+  makes the build much lighter.
+  Stored at `models/BODD_yolov8n_0001.onnx`.
+- **New package `auto/`:**
+  - `detector.py`: ONNX YOLO runner (letterbox, NMS, class roles matched by name).
+  - `shots.py`: attempt / made / missed / unclear rules. All tests use the ball's position
+    **relative to the hoop in the same frame**, because the TV camera pans and zooms
+    mid-shot. Includes a rim-line crossing rule and a "dropped through the net" rule
+    for layups.
+  - `teams.py`: k-means on chest colors, then a per-team Lab color histogram classifier
+    (log-likelihood ratio, so crowd and court colors cancel out); color names for teams.
+  - `jersey.py`: Tesseract digit OCR on the shooter's chest, accepted only when 2+ frames agree.
+  - `analyze.py`: video loop. Checks 5 frames/s normally and 15 frames/s near the hoop.
+    Camera cuts reset tracking. Shooter = the player holding the ball just before the
+    attempt. A "possible replay" rule. A thumbnail for every shot.
+  - `predict.py`: team and player tables, history CSV, and the outlook. Expected attempts use
+    exponential smoothing (decay 0.6). FG% is smoothed toward the league average with 10
+    virtual shots. The 80% range uses Poisson quantiles. Confidence is Low/Medium/High by
+    number of games.
+- **New `app.py` (home page):** upload video → Analyze (progress bar) → editable team names →
+  metrics, team table, player table, shot timeline, shot thumbnails, next-game outlook,
+  downloads (updated history CSV + this game's shots CSV). Sidebar: upload a past history CSV,
+  and a cap on minutes watched (default 10).
+- **Old pages moved off the site:** `app.py` → `legacy_fixed_camera_app.py`,
+  `pages/2_Broadcast.py` → `legacy/broadcast_page.py`. The Demo page stays.
+- `requirements.txt`: streamlit, opencv-python-headless, numpy, pandas, altair, onnxruntime, pytesseract.
+  `packages.txt`: libglib2.0-0, tesseract-ocr.
+- `docs/SOURCES.md`: new section "Auto-analysis home page" (E-BARD credit and license note,
+  make/miss rule, team split, OCR, outlook math). `README.md` updated.
+- `tests_auto/test_auto.py`: 12 logic tests with made-up ball paths (no video needed).
+
+**Test results:**
+- `python tests_auto/test_auto.py` → **12/12 pass**: make, short miss, long miss, low layup,
+  ball held under the hoop is not a make, make while the camera pans, dribble is not a shot,
+  rebound bounce is not a second attempt, two shots in a row, ball lost at the rim is unclear,
+  team split with crowd pixels, stats and outlook math.
+- **Real footage:** the only footage available is the Demo video. It covers source time
+  138–187 s of the 4-minute Duke vs. Alabama clip at about real speed, with the old SBVS
+  tracking overlays drawn on it. Jess's hand count has 5 shots in that window:
+
+  | Jess (source s) | Truth | SBVS (latest code) | Result | Team |
+  |---|---|---|---|---|
+  | 141 | Alabama made | 5.6 s → made | ✅ | ✅ Alabama |
+  | 152 | Duke made (layup) | 18.6 s → made | ✅ | ❌ (said Alabama; a defender overlaps the shooter) |
+  | 167 | Alabama missed | 31.6 s → missed | ✅ | ✅ Alabama |
+  | 176 | Duke missed | 40.8 s → missed | ✅ | ✅ Duke |
+  | 180 | Duke made 3 | 45.7 s → made | ✅ | ❌ (said Alabama) |
+
+  **Shots found 5/5, make/miss 5/5, team 3/5, jersey numbers 0/5** (none readable).
+  Processing: about 32 s for 50 s of video in the cloud sandbox. On the live site a 25 s clip
+  took about 40 s.
+- **Live site check (2026-11-12):** a 25 s test clip uploaded to sbvs-web.streamlit.app ran end
+  to end: metrics, tables, timeline, outlook and download buttons all rendered.
+
+**Bugs found and fixed along the way:**
+- Layups that barely rise above the rim in side-on views → added the "dropped through the net" rule.
+- The camera panning during a shot made makes look like misses (the hoop position had been
+  frozen at shot start) → all rules now use hoop-relative coordinates.
+- Threes peak several hoop widths from the rim, and the ball can be hidden for about 1 s
+  near the rim → widened the attempt zone (2.5 hoop widths) and the lost-ball timeout (1.2 s).
+- Team colors had been learned as averages ("gray" instead of white) → histogram classifier.
+
+## Files created or changed in `sbvs-web/` (this session)
+New: `app.py` (rewritten), `auto/__init__.py`, `auto/detector.py`, `auto/shots.py`, `auto/teams.py`,
+`auto/jersey.py`, `auto/analyze.py`, `auto/predict.py`, `tests_auto/test_auto.py`,
+`models/BODD_yolov8n_0001.onnx`, `HANDOFF.md`.
+Moved: `app.py` → `legacy_fixed_camera_app.py`; `pages/2_Broadcast.py` → `legacy/broadcast_page.py`.
+Changed: `requirements.txt`, `packages.txt`, `README.md`, `docs/SOURCES.md`.
+Not changed: everything else from the zip (class-era modules, Demo page, data, DEPLOY.md).
+
+## What's left / blocked
+1. **Team assignment** (3/5): fails when the shooter overlaps a defender. Ideas: track
+   players over time (ByteTrack-style IoU tracking) and use the shooter's color from frames
+   before contact; or a learned embedding (Roboflow uses SigLIP + k-means, but that needs
+   PyTorch).
+2. **Jersey numbers** (0/5 on wide TV shots): Tesseract is too weak at this size. Options: only
+   read numbers on close-ups, or a small digit-recognition model in ONNX.
+3. **More real footage:** Arham tried to attach 3 broadcast clips from one game (2026-11-14);
+   they arrived as 0-byte files (too large for chat). He is re-exporting smaller versions.
+   The full 4-minute Duke vs. Alabama clip (`sbvs 2.0 video test 1.mp4`) has not been
+   shared with this session. Only the 50 s Demo cut has.
+4. Speed on the free host: about 1.5× real time. A full game is not practical there.
+
+## Log
+- 2026-11-12: repo created, app deployed, Demo verified.
+- 2026-11-12: auto/ package, new app.py, model, docs pushed; live site tested with a 25 s clip;
+  histogram team classifier and layup rule pushed.
+- 2026-11-14: hoop-relative shot rules, wider three-point zone, longer lost-ball timeout; 12/12 tests; Demo window 5/5 shots, 5/5 make/miss, 3/5 team.
+  Pushed to GitHub with this HANDOFF.md (see commit list on GitHub).
