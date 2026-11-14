@@ -1,9 +1,7 @@
-# Lightweight on purpose: no PyTorch. The detector runs as ONNX (onnxruntime) and jersey
-# numbers are read with Tesseract (system package in packages.txt).
+# Lightweight on purpose: no PyTorch. The detector runs as ONNX (onnxruntime).
 streamlit
 opencv-python-headless
 numpy
 pandas
 altair
 onnxruntime
-pytesseract

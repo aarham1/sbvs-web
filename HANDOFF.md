@@ -133,6 +133,36 @@ was about 28/30 correct; it missed one player turned sideways. The errors came f
 While tuning, every variant got 4/5 but missed a *different* shot, so 5 labeled shots are
 too few to tune further without overfitting. More hand-counted footage is needed.
 
+## 4. Switch to team-only stats (2026-11-14) – DONE
+
+**Asked:** Arham asked whether jersey numbers are a bigger problem and decided to go team-only.
+
+**Why:** numbers on wide TV shots are about 10-20 px tall, blurred and often turned away.
+Tesseract read 0 of 5. The 2025 state of the art needs a fine-tuned model on a GPU.
+A misread number also corrupts a player's stats, while team totals hold up.
+
+**Done:**
+- `auto/predict.py` rewritten for teams. The history CSV has one row per team per game
+  (`game_id, game_date, game_label, team, opponent, minutes, attempts, makes`). Old history
+  files with a `player` column still load (their team-total rows are kept). New: scoring runs
+  (2+ makes in a row with no make by the other team), `known_teams()`, and a team-only outlook.
+- `auto/analyze.py`: the jersey OCR call and the `number` column were removed.
+  `auto/jersey.py` is kept but unused.
+- `app.py`: steps 1-4 on the page. (1) **Confirm team names**: pick a name already in the
+  history file or type one; the download is blocked if both teams have the same name.
+  (2) Team stats: made/attempts/FG% per team, an "Unknown team" count, scoring runs,
+  timeline, shot thumbnails. (3) Next-game outlook per team. (4) Downloads.
+- `requirements.txt`: pytesseract removed. `packages.txt`: tesseract-ocr removed.
+- README and `docs/SOURCES.md` updated (why numbers were dropped).
+- Tests: **15/15 pass** (team table with the replay excluded and an unknown team, scoring
+  runs, history with opponent, loading old-format history). The page code was also
+  dry-run with a stubbed Streamlit: no errors, and names matched against the history.
+
+**Demo window result (unchanged detection):** with names Duke / Alabama, SBVS shows
+Duke 1/2 and Alabama 2/3. Jess's count is Duke 2/3 and Alabama 1/2. The difference is the
+one shot credited to the wrong team (the Duke layup at 2:32), which also creates a false
+2-make Alabama run.
+
 ## Files created or changed in `sbvs-web/` (this session)
 New: `app.py` (rewritten), `auto/__init__.py`, `auto/detector.py`, `auto/players.py`, `auto/shots.py`, `auto/teams.py`,
 `auto/jersey.py`, `auto/analyze.py`, `auto/predict.py`, `tests_auto/test_auto.py`,
@@ -142,12 +172,12 @@ Changed: `requirements.txt`, `packages.txt`, `README.md`, `docs/SOURCES.md`.
 Not changed: everything else from the zip (class-era modules, Demo page, data, DEPLOY.md).
 
 ## What's left / blocked
-1. **Team assignment** (4/5 after section 3): still fails when the shooter is never alone
+1. **Team assignment** (4/5 after section 3; now the main accuracy limit, since stats are team-only): still fails when the shooter is never alone
    during the play. Next ideas: a possession rule (after a make, the other team usually
    shoots next), or a learned embedding (Roboflow uses SigLIP + k-means; that needs PyTorch
    or an ONNX export). Needs more labeled footage first.
-2. **Jersey numbers** (0/5 on wide TV shots): Tesseract is too weak at this size. Options: only
-   read numbers on close-ups, or a small digit-recognition model in ONNX.
+2. **Jersey numbers:** dropped by Arham's choice (team-only). Revisit only with a GPU or a
+   small ONNX digit model.
 3. **More real footage:** Arham tried to attach 3 broadcast clips from one game (2026-11-14);
    they arrived as 0-byte files (too large for chat). He is re-exporting smaller versions.
    The full 4-minute Duke vs. Alabama clip (`sbvs 2.0 video test 1.mp4`) has not been
@@ -161,3 +191,4 @@ Not changed: everything else from the zip (class-era modules, Demo page, data, D
 - 2026-11-14: hoop-relative shot rules, wider three-point zone, longer lost-ball timeout; 12/12 tests; Demo window 5/5 shots, 5/5 make/miss, 3/5 team.
   Pushed to GitHub with this HANDOFF.md (see commit list on GitHub).
 - 2026-11-14: player tracking and vote-based shooter (section 3); 14/14 tests; Demo team 4/5. Pushed.
+- 2026-11-14: team-only stats, team-name confirmation, team outlook, OCR removed (section 4); 15/15 tests. Pushed.

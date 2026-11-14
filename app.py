@@ -1,8 +1,9 @@
-"""SBVS - upload game footage, get shooting stats and a next-game outlook.
+"""SBVS - upload game footage, get team shooting stats and a next-game outlook.
 
 Everything is automatic: the system finds the ball, hoop and players, decides makes and
-misses, splits teams by jersey color, reads jersey numbers when it can, and forecasts
-next game from the history file you keep. See auto/ for how each step works.
+misses, splits teams by jersey color, and forecasts each team's next game from the history
+file you keep. Stats are per team (jersey numbers are not readable on TV footage).
+See auto/ for how each step works.
 """
 
 import datetime as dt
@@ -75,23 +76,51 @@ def run_analysis(upload, minutes):
     st.session_state["team_names"] = list(result["team_names"])
 
 
+NEW_NAME = "New team (type a name)"
+
+
+def pick_team_name(col, color, known, key):
+    """Team name for the team in jersey `color`: pick a team from the history file, or type one."""
+    label = f"Team in {color.lower()}"
+    if known:
+        choice = col.selectbox(label, known + [NEW_NAME], index=len(known), key=key + "_sel",
+                               help="Pick the same name you used in earlier games so the history lines up.")
+        if choice != NEW_NAME:
+            return choice
+        return col.text_input("Name", color, key=key + "_txt").strip()
+    return col.text_input(label, color, key=key + "_txt").strip()
+
+
 def show_results(history, game_label, game_date):
     result = st.session_state["result"]
     shots, meta = result["shots"], result["meta"]
+    colors = list(result["team_names"])
 
-    st.subheader("Team names")
-    st.caption("Teams were named by jersey color. Rename them if you like (e.g. White -> Duke).")
+    st.subheader("1. Confirm the team names")
+    st.caption("The system tells teams apart by jersey color. Type the real names (e.g. Duke, Alabama). "
+               "Use the same names every game, or the next-game outlook will treat one team as two.")
+    known = predict.known_teams(history)
     c1, c2 = st.columns(2)
-    names = st.session_state["team_names"]
-    names = [c1.text_input("Team 1", names[0], key="tn0"), c2.text_input("Team 2", names[1], key="tn1")]
+    names = [pick_team_name(c1, colors[0], known, "t0") or colors[0],
+             pick_team_name(c2, colors[1], known, "t1") or colors[1]]
+    names_ok = names[0] != names[1]
+    if not names_ok:
+        st.error("The two teams need different names.")
+    elif names == colors:
+        st.info("Still using jersey colors as names. That works, but a team that wears a different "
+                "color next game would start a new history.")
 
     labeled = predict.label_shots(shots, names)
     counted = predict.counted(labeled)
-    made = int((counted["result"] == "made").sum())
+    teams_df = predict.team_table(labeled, names)
+
+    st.subheader("2. Team stats")
     m = st.columns(4)
-    m[0].metric("Shots found", len(counted))
-    m[1].metric("Made", made)
-    m[2].metric("FG%", f"{100 * made / len(counted):.0f}%" if len(counted) else "–")
+    for k in range(2):
+        row = teams_df[teams_df["team"] == names[k]].iloc[0]
+        m[k].metric(names[k], f"{row['made']}/{row['attempts']}",
+                    f"{row['FG%']:.0f}% FG" if row["attempts"] else "no shots", delta_color="off")
+    m[2].metric("Shots found", len(counted))
     m[3].metric("Video watched", fmt_time(meta["duration_s"]),
                 help=f"Processing took {fmt_time(meta['processing_s'])}, {meta['checked_frames']} frames checked, "
                      f"{meta['cuts']} camera cuts.")
@@ -102,19 +131,20 @@ def show_results(history, game_label, game_date):
         return
     if meta.get("team_separation") is not None and meta["team_separation"] < 25:
         st.info("The two jersey colors look similar, so team assignment may be unreliable.")
-    if not meta.get("ocr"):
-        st.info("Jersey number reading is not available on this server, so stats are per team only.")
 
-    left, right = st.columns([2, 3])
-    with left:
-        st.subheader("Teams")
-        st.dataframe(predict.team_table(labeled), hide_index=True, use_container_width=True)
-    with right:
-        st.subheader("Players")
-        st.caption("Shots where the number could not be read count under '(number not read)'.")
-        st.dataframe(predict.player_table(labeled), hide_index=True, use_container_width=True)
+    st.dataframe(teams_df, hide_index=True, use_container_width=True)
+    unknown = int((counted["team_name"] == "Unknown team").sum())
+    if unknown:
+        st.caption(f"{unknown} shot(s) could not be given to a team (shooter not visible); "
+                   "they are listed as 'Unknown team'.")
 
-    st.subheader("Shot timeline")
+    runs = predict.scoring_runs(labeled)
+    if len(runs):
+        st.markdown("**Scoring runs** (2+ made baskets in a row with no make by the other team)")
+        st.dataframe(runs.assign(start=runs["start_s"].map(fmt_time), end=runs["end_s"].map(fmt_time))
+                     [["team", "makes", "start", "end"]], hide_index=True)
+
+    st.markdown("**Shot timeline**")
     chart_df = labeled.assign(minute=labeled["time_s"] / 60,
                               shown=labeled["flag"].where(labeled["flag"] != "", labeled["result"]))
     chart = alt.Chart(chart_df).mark_circle(size=140).encode(
@@ -123,7 +153,7 @@ def show_results(history, game_label, game_date):
         color=alt.Color("shown:N", title="Result",
                         scale=alt.Scale(domain=["made", "missed", "unclear", "possible replay"],
                                         range=["#2ca02c", "#d62728", "#ff9f1a", "#888888"])),
-        tooltip=["shot_id", "player", "result", "reason", "flag"])
+        tooltip=["shot_id", "team_name", "result", "reason", "flag"])
     st.altair_chart(chart, use_container_width=True)
 
     with st.expander("See every shot (check what the system saw)"):
@@ -134,39 +164,43 @@ def show_results(history, game_label, game_date):
                 if row.shot_id in thumbs:
                     st.image(thumbs[row.shot_id])
                 note = f" · {row.flag}" if row.flag else ""
-                st.caption(f"#{row.shot_id} · {fmt_time(row.time_s)} · {row.player} · **{row.result}**{note}")
+                st.caption(f"#{row.shot_id} · {fmt_time(row.time_s)} · {row.team_name} · **{row.result}**{note}")
 
-    st.subheader("Next-game outlook")
+    st.subheader("3. Next-game outlook")
     game_id = st.session_state["result_key"][:10]
-    rows = predict.game_rows(labeled, game_id, str(game_date), game_label)
+    rows = predict.game_rows(labeled, names, game_id, str(game_date), game_label, meta["duration_s"] / 60)
     full = predict.add_game(history, rows)
-    out = predict.outlook(full)
-    n_games = full["game_id"].nunique()
-    if n_games < 3:
-        st.caption(f"Based on {n_games} game(s). Forecasts get more reliable after 3 or more games: "
-                   "download the history file below and upload it next time.")
+    out = predict.outlook(full, teams=names)
     st.dataframe(out, hide_index=True, use_container_width=True)
+    games = {t: int((full["team"] == t).sum()) for t in names}
+    if min(games.values()) < 3:
+        st.caption("Low confidence until a team has 3 or more saved games. Download the history file "
+                   "below and upload it next time to build it up.")
+    st.caption("Counts depend on how much of the game the video covers; FG% does not. "
+               "Upload similar-length footage each game for comparable attempts and makes.")
     with st.expander("How the outlook is calculated"):
         st.markdown(
-            "- **Expected attempts:** average of past games, recent games count more (weights 1, 0.6, 0.36, ...).\n"
-            f"- **Expected FG%:** the player's own makes/attempts, pulled toward the overall average by "
-            f"{predict.PRIOR_ATTEMPTS} 'virtual' shots, so a 2-for-2 game doesn't predict 100%.\n"
+            "- **Expected attempts:** average of the team's past games, recent games count more "
+            "(weights 1, 0.6, 0.36, ...).\n"
+            f"- **Expected FG%:** the team's own makes/attempts, pulled toward the average of all teams by "
+            f"{predict.PRIOR_ATTEMPTS} 'virtual' shots, so one hot game doesn't predict 70%.\n"
             "- **Likely made (80%):** the range the makes should fall in 8 times out of 10 (Poisson model).\n"
-            "- **Trend:** last game's FG% compared with the player's overall FG%.")
+            "- **Trend:** last game's FG% compared with the team's overall FG%.")
 
-    st.subheader("Downloads")
+    st.subheader("4. Downloads")
     d1, d2 = st.columns(2)
     d1.download_button("Download updated history (keep this!)", full.to_csv(index=False),
-                       "sbvs_history.csv", "text/csv", type="primary")
-    d2.download_button("Download this game's shots", labeled.drop(columns=["team"]).to_csv(index=False),
+                       "sbvs_history.csv", "text/csv", type="primary", disabled=not names_ok)
+    d2.download_button("Download this game's shots",
+                       labeled.drop(columns=["team"]).rename(columns={"team_name": "team"}).to_csv(index=False),
                        f"sbvs_shots_{game_id}.csv", "text/csv")
 
 
 def main():
     history, minutes = sidebar()
     st.title("🏀 SBVS game stats")
-    st.write("Upload game footage. The system watches it and finds every shot, who took it, "
-             "and whether it went in, then predicts how each player should do next game.")
+    st.write("Upload game footage. The system watches it, finds every shot, which team took it "
+             "and whether it went in, then predicts how each team should shoot next game.")
     if not os.path.exists(MODEL_PATH):
         st.error("The basketball detector model file is missing (models/BODD_yolov8n_0001.onnx).")
         return
