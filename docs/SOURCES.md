@@ -142,3 +142,13 @@ Sources show where the ideas come from. What convinces a reviewer is being able 
   measures the ball relative to the hoop detected in the same frame, in hoop widths with the
   origin at the rim center. This is a simple form of camera-motion compensation that uses
   the hoop as a fixed reference point instead of estimating the camera motion (a homography).
+- **Player tracking (auto/players.py):** greedy box-to-track matching by IoU against a
+  constant-velocity prediction. This is the association step of SORT (Bewley et al., 2016,
+  "Simple Online and Realtime Tracking", arXiv:1602.00763), without the Kalman filter. It adds
+  an appearance term in the spirit of DeepSORT (Wojke et al., 2017, arXiv:1703.07402), using
+  the median jersey color instead of a CNN embedding. Color is ignored while two boxes overlap
+  heavily (IoU > 0.3), and a track's color and team samples are learned only while no other
+  box touches it.
+- **Shooter choice:** the player who held the ball in the most frames during the 2.5 s before
+  the attempt (newer frames weigh slightly more), not the last player to touch it. A
+  contesting defender's hand touches the ball for about one frame.
