@@ -134,7 +134,9 @@ Sources show where the ideas come from. What convinces a reviewer is being able 
   assigned by per-pixel voting over several frames, so a defender overlapping the box matters less.
   This is the usual unsupervised baseline; Roboflow's 2025 basketball tutorial uses the same
   k-means step on learned (SigLIP) features instead of raw colors.
-- **Jersey numbers:** Tesseract OCR (digits only), accepted only when two or more frames agree.
+- **Jersey numbers:** dropped on 2026-11-14 (team-only stats). Tesseract OCR read 0 of 5 numbers
+  on the TV test clip. Roboflow's 2025 basketball pipeline needs a fine-tuned ResNet/VLM on a GPU
+  (about 93% on crops), which is beyond the free host. `auto/jersey.py` is kept but unused.
 - **Next-game outlook:** exponential smoothing of attempts (decay 0.6). FG% uses additive
   (empirical-Bayes) smoothing toward the overall average with 10 virtual shots. The 80% range
   comes from Poisson quantiles.
