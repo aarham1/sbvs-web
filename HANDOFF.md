@@ -106,8 +106,35 @@ and processing on the **free host** (lighter models).
   near the rim → widened the attempt zone (2.5 hoop widths) and the lost-ball timeout (1.2 s).
 - Team colors had been learned as averages ("gray" instead of white) → histogram classifier.
 
+## 3. Team assignment when players overlap (2026-11-14) – IMPROVED, needs more footage
+
+**Asked:** fix shots being credited to the wrong team.
+
+**Found:** the color classifier itself is fine. On 30 isolated players from the Demo clip it
+was about 28/30 correct; it missed one player turned sideways. The errors came from
+(a) picking the wrong shooter: a defender's contesting hand touched the ball last;
+(b) identity swaps when the shooter and a defender collide; and
+(c) shooters who are never alone during the play.
+
+**Done:**
+- New `auto/players.py`: SORT-style player tracker (IoU with constant-velocity prediction)
+  plus a jersey-color appearance term (DeepSORT idea, color instead of a CNN). Color is
+  ignored during heavy overlap. Clean jersey samples are kept per player, taken only while
+  no other box touches him.
+- `auto/analyze.py`: the shooter is the player who held the ball in the most frames during
+  the 2.5 s before the attempt. His team comes from his tracked clean samples (2 or more);
+  otherwise from the chest strip under the ball at release. New `team_from` column in the
+  shots CSV (`tracked` / `at release`).
+- `docs/SOURCES.md`: cites SORT and DeepSORT, plus the shooter rule.
+- `tests_auto/test_auto.py`: 2 new tests (players crossing keep their IDs; samples only when
+  alone). **14/14 pass.**
+
+**Result on the Demo window (5 shots):** shots 5/5, make/miss 5/5, **team 4/5** (was 3/5).
+While tuning, every variant got 4/5 but missed a *different* shot, so 5 labeled shots are
+too few to tune further without overfitting. More hand-counted footage is needed.
+
 ## Files created or changed in `sbvs-web/` (this session)
-New: `app.py` (rewritten), `auto/__init__.py`, `auto/detector.py`, `auto/shots.py`, `auto/teams.py`,
+New: `app.py` (rewritten), `auto/__init__.py`, `auto/detector.py`, `auto/players.py`, `auto/shots.py`, `auto/teams.py`,
 `auto/jersey.py`, `auto/analyze.py`, `auto/predict.py`, `tests_auto/test_auto.py`,
 `models/BODD_yolov8n_0001.onnx`, `HANDOFF.md`.
 Moved: `app.py` → `legacy_fixed_camera_app.py`; `pages/2_Broadcast.py` → `legacy/broadcast_page.py`.
@@ -115,10 +142,10 @@ Changed: `requirements.txt`, `packages.txt`, `README.md`, `docs/SOURCES.md`.
 Not changed: everything else from the zip (class-era modules, Demo page, data, DEPLOY.md).
 
 ## What's left / blocked
-1. **Team assignment** (3/5): fails when the shooter overlaps a defender. Ideas: track
-   players over time (ByteTrack-style IoU tracking) and use the shooter's color from frames
-   before contact; or a learned embedding (Roboflow uses SigLIP + k-means, but that needs
-   PyTorch).
+1. **Team assignment** (4/5 after section 3): still fails when the shooter is never alone
+   during the play. Next ideas: a possession rule (after a make, the other team usually
+   shoots next), or a learned embedding (Roboflow uses SigLIP + k-means; that needs PyTorch
+   or an ONNX export). Needs more labeled footage first.
 2. **Jersey numbers** (0/5 on wide TV shots): Tesseract is too weak at this size. Options: only
    read numbers on close-ups, or a small digit-recognition model in ONNX.
 3. **More real footage:** Arham tried to attach 3 broadcast clips from one game (2026-11-14);
@@ -133,3 +160,4 @@ Not changed: everything else from the zip (class-era modules, Demo page, data, D
   histogram team classifier and layup rule pushed.
 - 2026-11-14: hoop-relative shot rules, wider three-point zone, longer lost-ball timeout; 12/12 tests; Demo window 5/5 shots, 5/5 make/miss, 3/5 team.
   Pushed to GitHub with this HANDOFF.md (see commit list on GitHub).
+- 2026-11-14: player tracking and vote-based shooter (section 3); 14/14 tests; Demo team 4/5. Pushed.
