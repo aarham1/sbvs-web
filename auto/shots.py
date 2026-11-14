@@ -19,7 +19,7 @@ from collections import deque
 from dataclasses import dataclass, field
 
 RIM_FRACTION = 0.2        # rim line = hoop box top + this * hoop box height
-ZONE_HALF_WIDTH = 1.2     # attempt zone reaches this many hoop widths left/right of the rim
+ZONE_HALF_WIDTH = 2.5     # attempt zone reaches this many hoop widths left/right of the rim (threes peak far out)
 ZONE_HEIGHT = 4.0         # ... and this many hoop widths above the rim line
 AWAY_DIST = 2.5           # "came from away": ball was this many hoop widths from the hoop
 LOOKBACK_S = 2.5          # ... within this many seconds before the attempt
@@ -28,13 +28,13 @@ RISE_WINDOW_S = 0.6
 BELOW_RIM_START = 0.6     # an attempt may also start this many hoop widths below the rim line
                           # (layups barely rise above the rim in side-on TV views)
 RIM_MARGIN = 0.15         # extra rim width (fraction of hoop width) counted as "inside"
-FAR_SIDE = 2.5            # during an attempt: ball this many hoop widths beside the rim,
+FAR_SIDE = 3.5            # during an attempt: ball this many hoop widths beside the rim,
 FAR_BELOW = 2.5           # ... this far below the rim line, or above the zone -> missed
 MAX_ATTEMPT_S = 3.0
-LOST_S = 0.8              # no ball for this long during an attempt -> unclear
+LOST_S = 1.2              # no ball for this long during an attempt -> unclear (ball often hidden near the rim)
 COOLDOWN_S = 1.2          # no new attempt this soon after the previous one ended
 HOOP_STALE_S = 1.0        # forget the hoop if not seen for this long
-HOOP_SMOOTH = 0.5         # moving-average weight of a new hoop detection
+HOOP_SMOOTH = 0.8         # moving-average weight of a new hoop detection (high: cameras pan)
 
 
 @dataclass
@@ -102,36 +102,42 @@ class ShotTracker:
             if ball is not None and t - self.last_end >= COOLDOWN_S and self._in_zone(ball, x1, x2, w, rim_y) \
                     and self._came_in(t, ball, w, center):
                 self.attempt = {"t0": t, "hoop": self.hoop, "path": [(t, ball[0], ball[1])],
+                                "rel": [((ball[0] - center[0]) / w, (ball[1] - rim_y) / w)],
                                 "last_seen": t}
             return None
         return self._update_attempt(t, ball)
 
     def _update_attempt(self, t, ball):
+        """All tests use the ball's position RELATIVE to the hoop in the same frame
+        (in hoop widths, origin = rim center), because TV cameras pan and zoom during
+        shots: the hoop can move 100+ pixels on screen while the ball is in the air."""
         a = self.attempt
-        x1, x2, w, rim_y, center = hoop_geometry(a["hoop"])
+        a["hoop"] = self.hoop                      # follow the hoop as the camera moves
+        x1, x2, w, rim_y, center = hoop_geometry(self.hoop)
         if ball is None:
             if t - a["last_seen"] > LOST_S:
-                last = a["path"][-1][1:]
-                near = self._in_zone(last, x1, x2, w, rim_y) or math.dist(last, center) < 1.5 * w
+                rx, ry = a["rel"][-1]
+                near = (abs(rx) <= 0.5 + ZONE_HALF_WIDTH and -ZONE_HEIGHT <= ry < BELOW_RIM_START) \
+                    or math.hypot(rx, ry) < 1.5
                 return self._finish(t, "unclear" if near else "missed", "ball lost")
             if t - a["t0"] > MAX_ATTEMPT_S:
                 return self._finish(t, "missed", "timeout")
             return None
-        prev = a["path"][-1]
+        rx, ry = (ball[0] - center[0]) / w, (ball[1] - rim_y) / w
+        prx, pry = a["rel"][-1]
         a["path"].append((t, ball[0], ball[1]))
+        a["rel"].append((rx, ry))
         a["last_seen"] = t
-        bx, by = ball[0], ball[1]
-        net_bottom = a["hoop"][3] + 0.3 * w
-        if x1 <= bx <= x2 and rim_y <= by <= net_bottom and by > prev[2] and len(a["path"]) >= 2:
+        net_depth = (self.hoop[3] - rim_y) / w + 0.3
+        if abs(rx) <= 0.5 and 0 <= ry <= net_depth and ry > pry:
             return self._finish(t, "made", "dropped through the net")
-        if prev[2] < rim_y <= by:                       # crossed the rim line going down
-            f = (rim_y - prev[2]) / max(by - prev[2], 1e-6)
-            cross_x = prev[1] + f * (bx - prev[1])
-            margin = RIM_MARGIN * w
-            if x1 - margin <= cross_x <= x2 + margin:
+        if pry < 0 <= ry:                                  # crossed the rim line going down
+            f = -pry / max(ry - pry, 1e-6)
+            cross = prx + f * (rx - prx)
+            if abs(cross) <= 0.5 + RIM_MARGIN:
                 return self._finish(t, "made", "through rim")
             return self._finish(t, "missed", "came down outside rim")
-        if self._left_area(bx, by, x1, x2, w, rim_y):
+        if self._left_area(ball[0], ball[1], x1, x2, w, rim_y):
             return self._finish(t, "missed", "ball left the hoop area")
         if t - a["t0"] > MAX_ATTEMPT_S:
             return self._finish(t, "missed", "timeout")
