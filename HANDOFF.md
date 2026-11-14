@@ -163,6 +163,41 @@ Duke 1/2 and Alabama 2/3. Jess's count is Duke 2/3 and Alabama 1/2. The differen
 one shot credited to the wrong team (the Duke layup at 2:32), which also creates a false
 2-make Alabama run.
 
+## 5. Goal checklist vs. current code (2026-11-14)
+
+Checked against the `sbvs-web` repo as it is now. **`sbvs-2/` (the class submission) has never
+been shared with this Cowork session**, so goals 1-6 were judged from the class-era modules
+that are copied into `sbvs-web` (`tracker.py`, `shots.py`, `players.py`, `stats.py`,
+`charts.py`, `legacy_fixed_camera_app.py`). Check them again in `sbvs-2/`.
+
+| # | Goal | Status | Evidence |
+|---|---|---|---|
+| 1 | Better ball/shot tracking, measured vs 1.0 | Partial | `shots.evaluate_shots()` and `settings.SBVS1_SHOTS_FILE` exist, but `data/sbvs1_shots.csv` and `sbvs1_baseline.ipynb` are not in this repo and no recorded 1.0-vs-2.0 result was found |
+| 2 | Streamlit app UI | Done | `legacy_fixed_camera_app.py` (6 screens: upload, hoop, analyze, review, players, dashboard). It is off the website now but still in the repo |
+| 3 | Player roster + manual shot assignment | Done (class app only) | `players.py` (`Player` class, load/save) and `review_screen()` "Review shots and assign players" in `legacy_fixed_camera_app.py` |
+| 4 | Stats dashboard with Pandas + Matplotlib (FG%, makes vs attempts, running FG%) | Partial | `stats.py` + `charts.py`. The dashboard shows `fg_by_player_chart` and `attempts_vs_makes_chart`; `charts.running_fg_chart()` exists but is never called by the app |
+| 5 | Modular OOP code in separate files | Done | `tracker.py` (`Hoop`, `BasketballTracker`), `shots.py` (`Shot`), `players.py` (`Player`), `stats.py`, `charts.py`, app file |
+| 6 | Final submission is a Jupyter notebook | Not done (here) | No `.ipynb` in `sbvs-web`. It may exist in `sbvs-2/`, which this session cannot see |
+| 7 | Upload footage incl. TV broadcasts, stats automatic | Done (accuracy only checked on 1 clip) | `app.py` upload → `auto/analyze.py`. Demo window: 5/5 shots, 5/5 make/miss, 4/5 team. Live site verified with a 25 s clip |
+| 8 | Team-level stats as main output; per-player as optional manual tagging | Partial | Team-only is done (`predict.team_table`, team-name confirmation in `app.py`). **No optional per-player manual tagging on the website**: the roster/assign screen exists only in the off-site class app |
+| 9 | Next-game outlook per team | Done | `predict.outlook()` (exponential smoothing, empirical-Bayes FG%, Poisson 80% range), section 3 of `app.py` |
+| 10 | Scoreboard decides makes/points/team; detector adds attempts/misses | Not done | `broadcast/scoreboard.py` (EasyOCR) exists, but `auto/` never uses it; makes come only from the ball/hoop rules. The "4 games" result is not in this session or repo: `data/real_tests/RESULTS.md` covers 1 game (Duke vs Alabama, scoreboard 7/7 makes) |
+| 11 | Test on clean raw footage, not the Demo video | Not done | Every accuracy number so far is on the Demo video (old overlays) or a cut of it. Arham's 3 raw clips arrived as 0-byte files |
+
+**Rules**
+- Sources: every new technique and library is cited. Altair and onnxruntime links were missing
+  and were added to `docs/SOURCES.md` on 2026-11-14.
+- Commits: every commit is by `aarham1`, checked through the GitHub API. None are by Kevin,
+  Jessica or Jonathan.
+- `HANDOFF.md`: updated after every task, including this one.
+
+**Note on goal 10 vs. this session's testing:** the scoreboard-first design fits what is
+known. The scoreboard was 7/7 on Duke vs Alabama in `RESULTS.md`, and Arham reports
+every make right on 4 games, against about half of makes missed by the automatic
+pipeline on new games. Doing it would mean bringing EasyOCR/PyTorch back (heavy on the
+free host) or finding a lighter OCR, plus finding the scoreboard automatically, since the
+old page needed the score boxes marked by hand.
+
 ## Files created or changed in `sbvs-web/` (this session)
 New: `app.py` (rewritten), `auto/__init__.py`, `auto/detector.py`, `auto/players.py`, `auto/shots.py`, `auto/teams.py`,
 `auto/jersey.py`, `auto/analyze.py`, `auto/predict.py`, `tests_auto/test_auto.py`,
@@ -192,3 +227,5 @@ Not changed: everything else from the zip (class-era modules, Demo page, data, D
   Pushed to GitHub with this HANDOFF.md (see commit list on GitHub).
 - 2026-11-14: player tracking and vote-based shooter (section 3); 14/14 tests; Demo team 4/5. Pushed.
 - 2026-11-14: team-only stats, team-name confirmation, team outlook, OCR removed (section 4); 15/15 tests. Pushed.
+- 2026-11-14: live site re-checked (25 s clip: 2/2 shots right, both teams right); rendered sbvs_in_action.mp4.
+- 2026-11-14: goal checklist (section 5); Altair/onnxruntime citations added. Pushed.
