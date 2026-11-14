@@ -154,3 +154,7 @@ Sources show where the ideas come from. What convinces a reviewer is being able 
 - **Shooter choice:** the player who held the ball in the most frames during the 2.5 s before
   the attempt (newer frames weigh slightly more), not the last player to touch it. A
   contesting defender's hand touches the ball for about one frame.
+- **Libraries added for the website (2026-11-12):**
+  - onnxruntime, which runs the ONNX detector on CPU: https://onnxruntime.ai/docs/get-started/with-python.html
+  - Altair, which draws the shot-timeline chart on the home page (Streamlit's built-in chart library):
+    https://altair-viz.github.io/ and https://docs.streamlit.io/develop/api-reference/charts/st.altair_chart
