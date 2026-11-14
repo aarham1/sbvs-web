@@ -68,6 +68,22 @@ def test_ball_held_under_hoop_is_not_a_make():
     assert run(path) == []
 
 
+def test_make_while_camera_pans():
+    # ball drops straight through the rim, but the camera pans: hoop and ball both move
+    # down/right on screen by the same amount each frame
+    tr = shots.ShotTracker()
+    events = []
+    rel = [(-3.0, 1.5), (-2.0, -1.5), (-1.0, -2.5), (-0.3, -1.5), (0.0, -0.6), (0.05, 0.3), (0.05, 1.0)]
+    for i, (rx, ry) in enumerate(rel):
+        dx, dy = 25 * i, 15 * i          # camera movement
+        hoop = (500 + dx, 200 + dy, 540 + dx, 240 + dy, 0.9)
+        rim_y = 200 + dy + 0.2 * 40
+        ev = tr.update(i / 10, (520 + dx + rx * 40, rim_y + ry * 40), [hoop])
+        if ev:
+            events.append(ev)
+    assert len(events) == 1 and events[0].result == "made", events
+
+
 def test_dribble_far_away_is_not_a_shot():
     path = [(200 + i, 400 + (i % 2) * 30) for i in range(40)]
     assert run(path) == []
