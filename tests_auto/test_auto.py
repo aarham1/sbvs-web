@@ -9,7 +9,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from auto import predict, shots, teams  # noqa: E402
+from auto import players, predict, shots, teams  # noqa: E402
 
 HOOP = (500, 200, 540, 240, 0.9)   # 40 px wide hoop, rim line at y = 208
 
@@ -125,6 +125,42 @@ def test_team_split_and_names():
     shooter = np.vstack([rng.normal(teams._lab((240, 240, 240)), 4, (40, 3)), rng.normal(teams._lab((60, 50, 70)), 8, (300, 3))])
     assert model.assign_pixels([shooter]) == 0
     assert model.assign_pixels([px(teams._lab((90, 40, 20)))]) == 1
+
+
+def _frame_with(players_boxes):
+    """Gray court frame with solid-color 'players' (box, BGR color)."""
+    import numpy as _np
+    f = _np.full((400, 600, 3), 150, _np.uint8)
+    for (x1, y1, x2, y2), c in players_boxes:
+        f[y1:y2, x1:x2] = c
+    return f
+
+
+def test_tracker_keeps_ids_when_players_cross():
+    # white player moves right, maroon player moves left; they overlap in the middle frames
+    tr = players.PlayerTracker()
+    white, maroon = (240, 240, 240), (40, 30, 120)
+    seen = []
+    for k in range(9):
+        a = (100 + 22 * k, 100, 160 + 22 * k, 260)
+        b = (400 - 22 * k, 100, 460 - 22 * k, 260)
+        # list order flips halfway, like a detector would
+        boxes = [a, b] if k < 4 else [b, a]
+        f = _frame_with([(a, white), (b, maroon)])
+        ids = tr.update(k * 0.2, boxes, f)
+        seen.append(dict(zip([tuple(x) for x in boxes], ids))[tuple(a)])
+    assert len(set(seen)) == 1, seen
+
+
+def test_clean_samples_only_when_alone():
+    tr = players.PlayerTracker()
+    a, b = (100, 100, 160, 260), (150, 100, 210, 260)    # touching
+    f = _frame_with([(a, (240, 240, 240)), (b, (40, 30, 120))])
+    ids = tr.update(0.0, [a, b], f)
+    assert tr.samples(ids[0]) == [] and tr.samples(ids[1]) == []
+    far = (400, 100, 460, 260)
+    ids = tr.update(0.5, [a, far], _frame_with([(a, (240, 240, 240)), (far, (40, 30, 120))]))
+    assert len(tr.samples(ids[0])) == 1
 
 
 def test_stats_and_outlook():
