@@ -15,7 +15,7 @@ import cv2
 import numpy as np
 import pandas as pd
 
-from . import jersey, shots as shot_rules, teams
+from . import jersey, players as player_tracking, shots as shot_rules, teams
 from .detector import Detector
 
 BASE_FPS = 5
@@ -28,6 +28,7 @@ RELEASE_LOOKBACK_S = 2.5
 TEAM_SAMPLE_EVERY_S = 1.0
 MAX_TEAM_SAMPLES = 3000
 REPLAY_S = 20.0
+MIN_CLEAN_SAMPLES = 2    # isolated jersey samples needed to trust the tracked team
 MAX_BALL_JUMP = 0.35     # fraction of frame width the ball may move between checks
 
 
@@ -68,19 +69,27 @@ def pick_ball(balls, last, width):
 
 
 def find_shooter(buffer, event):
-    """Latest buffered frame (up to the attempt) where a player holds the ball.
-    Returns (frame_entry, player_box) or (None, None)."""
-    for entry in reversed(buffer):
-        if entry["t"] > event.t_attempt or event.t_attempt - entry["t"] > RELEASE_LOOKBACK_S:
+    """The player who held the ball the most in the RELEASE_LOOKBACK_S before the attempt.
+    Counting frames (newer frames weigh a bit more) beats "last player touching the ball":
+    a defender contesting the shot touches it for one frame, the shooter gathers it for many.
+    Returns (frame_entry, index of the player in that entry) or (None, None)."""
+    votes, last_seen = {}, {}
+    for entry in buffer:
+        dt = event.t_attempt - entry["t"]
+        if dt < 0 or dt > RELEASE_LOOKBACK_S or entry["ball"] is None:
             continue
         ball = entry["ball"]
-        if ball is None:
+        holders = [i for i, p in enumerate(entry["players"]) if ball_in_hands(ball, p)]
+        if not holders:
             continue
-        holders = [p for p in entry["players"] if ball_in_hands(ball, p)]
-        if holders:
-            best = min(holders, key=lambda p: math.dist(_center(p), ball))
-            return entry, best
-    return None, None
+        i = min(holders, key=lambda k: math.dist(_center(entry["players"][k]), ball))
+        tid = entry["ids"][i]
+        votes[tid] = votes.get(tid, 0.0) + 1.0 + 0.3 * (1 - dt / RELEASE_LOOKBACK_S)
+        last_seen[tid] = (entry, i)
+    if not votes:
+        return None, None
+    best = max(votes, key=votes.get)
+    return last_seen[best]
 
 
 def follow_back(buffer, entry, box, n=6):
@@ -131,6 +140,7 @@ def analyze_video(path, detector=None, progress=None, max_seconds=None):
         duration = min(duration, max_seconds) if duration else max_seconds
 
     tracker = shot_rules.ShotTracker()
+    player_tracker = player_tracking.PlayerTracker()
     buffer = deque()
     team_samples = []
     team_pixels = []
@@ -168,8 +178,9 @@ def analyze_video(path, detector=None, progress=None, max_seconds=None):
         if prev_hist is not None and cv2.compareHist(prev_hist, hist, cv2.HISTCMP_CORREL) < CUT_THRESHOLD:
             ev = tracker.flush(t)
             if ev is not None:
-                raw_events.append(_describe(ev, buffer, use_ocr))
+                raw_events.append(_describe(ev, buffer, use_ocr, player_tracker))
             tracker.reset()
+            player_tracker.reset()
             buffer.clear()
             last_ball = None
             cut_times.append(t)
@@ -180,8 +191,9 @@ def analyze_video(path, detector=None, progress=None, max_seconds=None):
         ball = _center(ball_box) if ball_box else None
         last_ball = ball if ball else last_ball
         players = [p[:4] for p in det["player"]]
+        ids = player_tracker.update(t, players, frame, [r[:4] for r in det["referee"]])
 
-        buffer.append({"t": t, "frame": frame, "ball": ball, "players": players})
+        buffer.append({"t": t, "frame": frame, "ball": ball, "players": players, "ids": ids})
         while buffer and t - buffer[0]["t"] > BUFFER_S:
             buffer.popleft()
 
@@ -196,7 +208,7 @@ def analyze_video(path, detector=None, progress=None, max_seconds=None):
 
         ev = tracker.update(t, ball, det["hoop"])
         if ev is not None:
-            raw_events.append(_describe(ev, buffer, use_ocr))
+            raw_events.append(_describe(ev, buffer, use_ocr, player_tracker))
 
         near = tracker.attempt is not None
         if not near and ball is not None and tracker.hoop is not None:
@@ -209,7 +221,7 @@ def analyze_video(path, detector=None, progress=None, max_seconds=None):
 
     ev = tracker.flush(next_t)
     if ev is not None:
-        raw_events.append(_describe(ev, buffer, use_ocr))
+        raw_events.append(_describe(ev, buffer, use_ocr, player_tracker))
     cap.release()
 
     team_model = None
@@ -225,26 +237,35 @@ def analyze_video(path, detector=None, progress=None, max_seconds=None):
             "thumbs": thumbs, "meta": meta}
 
 
-def _describe(ev, buffer, use_ocr):
-    entry, box = find_shooter(buffer, ev)
-    pixels, number, thumb = None, None, None
+def _describe(ev, buffer, use_ocr, player_tracker):
+    """Shooter, his team evidence, jersey number and a thumbnail for one shot.
+    Team evidence: clean (isolated) jersey samples of the shooter's track if there are
+    at least MIN_CLEAN_SAMPLES; otherwise the chest strip under the ball at release."""
+    entry, idx = find_shooter(buffer, ev)
+    pixels, number, thumb, source = None, None, None, ""
     if entry is not None:
+        box = entry["players"][idx]
+        clean = player_tracker.samples(entry["ids"][idx])
         chain = follow_back(buffer, entry, box)
-        held = [(e, b) for e, b in chain if e["ball"] and ball_in_hands(e["ball"], b)]
-        pixels = [teams.chest_under_ball_pixels(e["frame"], b, e["ball"]) for e, b in held] or \
-                 [teams.torso_pixels(entry["frame"], box)]
+        if len(clean) >= MIN_CLEAN_SAMPLES:
+            pixels, source = clean, "tracked"
+        else:
+            held = [(e, b) for e, b in chain if e["ball"] and ball_in_hands(e["ball"], b)]
+            pixels = [teams.chest_under_ball_pixels(e["frame"], b, e["ball"]) for e, b in held] or \
+                     [teams.torso_pixels(entry["frame"], box)]
+            source = "at release"
         if use_ocr:
             number = jersey.vote([jersey.read_number(e["frame"], b) for e, b in chain])
         thumb = thumbnail(entry["frame"], box, ev.hoop, ev.result)
     elif buffer:
         thumb = thumbnail(buffer[-1]["frame"], None, ev.hoop, ev.result)
-    return ev, pixels, number, thumb
+    return ev, pixels, number, thumb, source
 
 
 def _build_table(raw_events, team_model, cut_times):
     rows, thumbs = [], {}
     last_made_t = None
-    for i, (ev, pixels, number, thumb) in enumerate(raw_events, start=1):
+    for i, (ev, pixels, number, thumb, source) in enumerate(raw_events, start=1):
         team_idx = team_model.assign_pixels(pixels) if (team_model is not None and pixels) else None
         flag = ""
         if ev.result == "made" and last_made_t is not None and ev.t_attempt - last_made_t < REPLAY_S \
@@ -254,8 +275,8 @@ def _build_table(raw_events, team_model, cut_times):
             last_made_t = ev.t_result
         rows.append({"shot_id": i, "time_s": round(ev.t_attempt, 1), "result": ev.result,
                      "team": team_idx, "number": number or "", "shooter_found": pixels is not None,
-                     "reason": ev.reason, "flag": flag})
+                     "team_from": source, "reason": ev.reason, "flag": flag})
         if thumb:
             thumbs[i] = thumb
-    cols = ["shot_id", "time_s", "result", "team", "number", "shooter_found", "reason", "flag"]
+    cols = ["shot_id", "time_s", "result", "team", "number", "shooter_found", "team_from", "reason", "flag"]
     return pd.DataFrame(rows, columns=cols), thumbs
