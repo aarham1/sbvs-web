@@ -138,3 +138,7 @@ Sources show where the ideas come from. What convinces a reviewer is being able 
 - **Next-game outlook:** exponential smoothing of attempts (decay 0.6). FG% uses additive
   (empirical-Bayes) smoothing toward the overall average with 10 virtual shots. The 80% range
   comes from Poisson quantiles.
+- **Camera motion:** TV cameras pan and zoom during a shot. Every make/miss test therefore
+  measures the ball relative to the hoop detected in the same frame, in hoop widths with the
+  origin at the rim center. This is a simple form of camera-motion compensation that uses
+  the hoop as a fixed reference point instead of estimating the camera motion (a homography).
